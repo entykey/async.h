@@ -1,95 +1,93 @@
-/* We must always include async.h in our asyncs code. */
+#include <unistd.h> // for usleep
+
 #include "async.h"
+#include <stdio.h>
+#include <stdbool.h>
+#include <time.h>
 
-#include <stdio.h> /* For printf(). */
+/* Flag to indicate whose turn it is to execute */
+static bool async1_turn;
 
-/* Two flags that the two async functions use. */
-static int async1_flag, async2_flag;
+/* Counter to track the number of completed tasks */
+static int completed_tasks;
 
 /**
- * The first async function. A async function must always
- * return an integer, but must never explicitly return - returning is
- * performed inside the async statements.
- *
- * The async function is driven by the main loop further down in
- * the code.
+ * Get current time in microseconds.
+ */
+static double current_time_us() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000.0 + ts.tv_nsec / 1000.0;
+}
+
+/**
+ * Get current time in nanoseconds.
+ */
+static double current_time_ns() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000.0 + ts.tv_nsec;
+}
+
+/**
+ * The first async function.
  */
 static async
 async1(struct async *pt)
 {
-	/* A async function must begin with async_begin() which takes a
-	   pointer to a struct async. */
-	async_begin(pt);
+    async_begin(pt);
 
-	/* We loop forever here. */
-	while (1) {
-		/* Wait until the other async has set its flag. */
-		await(async2_flag != 0);
-		printf("async 1 running\n");
+    double start_time_us = current_time_us();
+    double start_time_ns = current_time_ns();
 
-		/* We then reset the other async's flag, and set our own
-		   flag so that the other async can run. */
-		async2_flag = 0;
-		async1_flag = 1;
+    while (1) {
+        if (async1_turn) {
+            printf("async 1 running\n");
+            async1_turn = false; // Switch turn
+            // Simulate some calculation task
+            // In this example, we just sleep for a short duration
+            // usleep(800000); // Sleep for 800ms
+            printf("async 1 done\n");
+            completed_tasks++; // Increment completed tasks counter
+        }
+        double end_time_us = current_time_us();
+        double end_time_ns = current_time_ns();
 
-		/* And we loop. */
-	}
+        double elapsed_time_us = end_time_us - start_time_us;
+        double elapsed_time_ns = end_time_ns - start_time_ns;
 
-	/* All async functions must end with async_end which takes a
-	   pointer to a struct pt. */
-	async_end;
+        printf("async 1 execution time: %.6f ms (%.6f us) (%.6f ns)\n", elapsed_time_us / 1000.0, elapsed_time_us, elapsed_time_ns);
+
+        // without this line, task1 never stop
+        async_yield;
+    }
+
+    async_end;
 }
 
 /**
- * The second async function. This is almost the same as the
- * first one.
+ * The second async function.
  */
 static async
 async2(struct async *pt)
 {
-	async_begin(pt);
+    async_begin(pt);
 
-	while (1) {
-		/* Let the other async run. */
-		async2_flag = 1;
+    while (1) {
+        if (!async1_turn) {
+            printf("async 2 running\n");
+            async1_turn = true; // Switch turn
+            // Simulate some calculation task
+            // In this example, we just sleep for a short duration
+            // usleep(500000); // Sleep for 500ms
+            printf("async 2 done\n");
+            completed_tasks++; // Increment completed tasks counter
+        }
+        async_yield;
+    }
 
-		/* Wait until the other async has set its flag. */
-		await(async1_flag != 0);
-		printf("async 2 running\n");
-
-		/* We then reset the other async's flag. */
-		async1_flag = 0;
-
-		/* And we loop. */
-	}
-	async_end;
+    async_end;
 }
-
-/**
- * Finally, we have the main loop. Here is where the asyncs are
- * initialized and scheduled. First, however, we define the
- * async state variables pt1 and pt2, which hold the state of
- * the two asyncs.
- */
-static struct async pt1, pt2;
-void
-example_small(int i)
-{
-	/* Initialize the async state variables with async_init(). */
-	async_init(&pt1);
-	async_init(&pt2);
-
-	/*
-	 * Then we schedule the two asyncs by repeatedly calling their
-	 * async functions and passing a pointer to the async
-	 * state variables as arguments.
-	 */
-	while (--i >= 0) {
-		async1(&pt1);
-		async2(&pt2);
-	}
-}
-
 
 /**
  * The main function, serving as the entry point of the program.
@@ -99,10 +97,24 @@ int main() {
     async_init(&pt1);
     async_init(&pt2);
 
-    while (1) {
+    async1_turn = true;
+    completed_tasks = 0;
+
+    double main_start_time_us = current_time_us();
+    double main_start_time_ns = current_time_ns();
+
+    while (completed_tasks < 2) {
         async1(&pt1);
         async2(&pt2);
     }
+
+    double main_end_time_us = current_time_us();
+    double main_end_time_ns = current_time_ns();
+
+    double main_elapsed_time_us = main_end_time_us - main_start_time_us;
+    double main_elapsed_time_ns = main_end_time_ns - main_start_time_ns;
+
+    printf("\n⌛️ Execution time: %.6f ms (%.6f us) (%.6f ns)\n", main_elapsed_time_us / 1000.0, main_elapsed_time_us, main_elapsed_time_ns);
 
     return 0;
 }
